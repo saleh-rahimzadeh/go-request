@@ -14,9 +14,9 @@ import (
 //──────────────────────────────────────────────────────────────────────────────────────────────────
 
 type Request interface {
-	SendJson(c *Claim, data any) (Result, []error, error)
-	SendForm(c *Claim, data map[string]string) (Result, []error, error)
-	SendQuery(c *Claim, data any) (Result, []error, error)
+	SendJson(c Demand, data any) (Result, Response, bool)
+	SendForm(c Demand, data map[string]string) (Result, Response, bool)
+	SendQuery(c Demand, data any) (Result, Response, bool)
 }
 
 type request struct {
@@ -24,17 +24,18 @@ type request struct {
 	Retries []time.Duration
 }
 
-//──────────────────────────────────────────────────────────────────────────────────────────────────
+//┌ Instance
+//└─────────────────────────────────────────────────────────────────────────────────────────────────
 
-// NewRequest create a new Request instance
-// timeout define connection time limit
-// retries define time pause between retries
-func NewRequest(timeout int64, retries []int64) Request {
-	var timeoutValue time.Duration = max(time.Duration(timeout)*time.Second, MAX_TIMEOUT)
+// New create a new Request instance
+// timeout define connection time limit (refer to (http.Client).Timeout), maximum is MAX_TIMEOUT
+// retries define time pause between retries, empty array means only one try
+func New(timeout time.Duration, retries []time.Duration) Request {
+	var timeoutValue time.Duration = max(timeout, MAX_TIMEOUT)
 
 	var retriesValue []time.Duration = make([]time.Duration, 0)
 	for retry := range slices.Values(retries) {
-		retriesValue = append(retriesValue, time.Second*time.Duration(retry))
+		retriesValue = append(retriesValue, retry)
 	}
 
 	return request{
@@ -43,84 +44,111 @@ func NewRequest(timeout int64, retries []int64) Request {
 	}
 }
 
-//──────────────────────────────────────────────────────────────────────────────────────────────────
+//┌ Methods
+//└─────────────────────────────────────────────────────────────────────────────────────────────────
 
-func (r request) SendJson(c *Claim, data any) (Result, []error, error) {
+// SendJson send http request with JSON payload
+// if data is nil then request will be sent without body
+// if can't encode json then empty body will be sent
+func (r request) SendJson(c Demand, data any) (Result, Response, bool) {
 	dataByte, err := json.Marshal(data)
 	if err != nil {
-		return Result{}, []error{err}, err
+		dataByte = []byte{}
 	}
-	c.ContentType(HTTP_JSON)
-	return r.perform(*c, bytes.NewBuffer(dataByte))
+	return r.perform(
+		c.ContentType(HTTP_JSON),
+		bytes.NewBuffer(dataByte),
+	)
 }
 
-func (r request) SendForm(c *Claim, data map[string]string) (Result, []error, error) {
+// SendForm send http request with www form payload
+func (r request) SendForm(c Demand, data map[string]string) (Result, Response, bool) {
 	formData := net_url.Values{}
 	for k, v := range data {
 		formData[k] = []string{v}
 	}
 	encodedData := formData.Encode()
-	c.ContentType(HTTP_FORM)
-	return r.perform(*c, strings.NewReader(encodedData))
+	return r.perform(
+		c.ContentType(HTTP_FORM),
+		strings.NewReader(encodedData),
+	)
 }
 
-func (r request) SendQuery(c *Claim, data any) (Result, []error, error) {
-	params := c.URI.Query()
+// SendQuery send http request with query string payload
+// data is payload of data in `map[string]string` or `url.Values` format
+// if data is invalid not query param will be set
+func (r request) SendQuery(c Demand, data any) (Result, Response, bool) {
+	if data != nil {
+		params := c.URI.Query()
 
-	switch payload := data.(type) {
-	case map[string]string:
-		for k, v := range payload {
-			params.Add(k, v)
-		}
-	case net_url.Values:
-		for k, v := range payload {
-			for _, vv := range v {
-				params.Add(k, vv)
+		switch payload := data.(type) {
+		case map[string]string:
+			for k, v := range payload {
+				params.Add(k, v)
+			}
+		case net_url.Values:
+			for k, v := range payload {
+				for _, vv := range v {
+					params.Add(k, vv)
+				}
 			}
 		}
-	default:
-		panic("SendQuery data is not valid")
-	}
 
-	c.URI.RawQuery = params.Encode()
-	return r.perform(*c, nil)
+		c.URI.RawQuery = params.Encode()
+	}
+	return r.perform(c, nil)
 }
 
-//──────────────────────────────────────────────────────────────────────────────────────────────────
+//┌ Internal Methods
+//└─────────────────────────────────────────────────────────────────────────────────────────────────
 
-// perform perform http request
+// perform http request
+// it silently discards and return unsuccess if c.Error contains error
 // return Result on success
-// return an array of retry errors
-// return last error
-func (r request) perform(c Claim, body io.Reader) (Result, []error, error) {
-	var (
-		result Result
-		err    error
-	)
-
-	if len(r.Retries) == 0 {
-		result, err = r.send(c, body)
-		return result, []error{err}, err
+// return Response with properties and errors
+// return True on success
+func (r request) perform(c Demand, body io.Reader) (result Result, response Response, isSuccess bool) {
+	if c.Error != nil {
+		isSuccess = false
+		return //↩️ ∅
 	}
 
-	var aerr []error
+	var (
+		err   error
+		start = time.Now()
+	)
 
-	for _, schedule := range r.Retries {
+	defer func(start time.Time) {
+		response.TotalElapsed = time.Since(start)
+	}(start)
+
+	if len(r.Retries) == 0 {
+		r.Retries = []time.Duration{0}
+	}
+
+	for retryIndex, duration := range r.Retries {
+		response.Retries = retryIndex + 1
+
+		begin := time.Now()
 		result, err = r.send(c, body)
+		response.Elapsed = time.Since(begin)
+
 		if err == nil {
-			return result, nil, nil
+			isSuccess = true
+			return //↩️ ∅
 		}
 
-		aerr = append(aerr, err)
+		response.Errors = append(response.Errors, err)
 
-		time.Sleep(schedule)
+		time.Sleep(duration)
 	}
 
 	// All retries failed
-	return Result{}, aerr, err
+	isSuccess = false
+	return //↩️ ∅
 }
 
-func (r request) send(c Claim, body io.Reader) (Result, error) {
+func (r request) send(c Demand, body io.Reader) (Result, error) {
 	httpRequest, err := http.NewRequest(c.Method, c.GetUrl(), body)
 	if err != nil {
 		return Result{}, err
@@ -136,8 +164,6 @@ func (r request) send(c Claim, body io.Reader) (Result, error) {
 		httpRequest.Header.Add(k, v)
 	}
 
-	startTime := time.Now()
-
 	client := &http.Client{
 		Timeout: r.Timeout,
 	}
@@ -146,8 +172,6 @@ func (r request) send(c Claim, body io.Reader) (Result, error) {
 		return Result{}, err
 	}
 	defer response.Body.Close()
-
-	elapsed := time.Since(startTime)
 
 	responseBody, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -161,9 +185,8 @@ func (r request) send(c Claim, body io.Reader) (Result, error) {
 	}
 
 	var result = Result{
-		Body:       responseBody,
-		Elapsed:    elapsed.Milliseconds(),
 		StatusCode: response.StatusCode,
+		Body:       responseBody,
 		BodyObject: bodyObject,
 		IsOK:       false,
 	}
