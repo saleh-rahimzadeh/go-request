@@ -9,7 +9,7 @@ type Result struct {
 	// Body represents the response body.
 	Body []byte
 
-	// BodyObject represents the reponse body marshed as map[string]any
+	// BodyObject represents the response body marshaled as map[string]any
 	BodyObject map[string]any
 
 	// StatusCode http status code, e.g. http.StatusOK
@@ -20,8 +20,8 @@ type Result struct {
 	IsOK bool
 }
 
-// Response of perfoming request
-type Response struct {
+// Properties of perfoming request
+type Properties struct {
 	// Elapsed time spend to getting last response
 	Elapsed time.Duration
 

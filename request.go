@@ -14,9 +14,9 @@ import (
 //──────────────────────────────────────────────────────────────────────────────────────────────────
 
 type Request interface {
-	SendJson(c Demand, data any) (Result, Response, bool)
-	SendForm(c Demand, data map[string]string) (Result, Response, bool)
-	SendQuery(c Demand, data any) (Result, Response, bool)
+	SendJson(c Demand, data any) (Result, Properties, bool)
+	SendForm(c Demand, data any) (Result, Properties, bool)
+	Send(c Demand) (Result, Properties, bool)
 }
 
 type request struct {
@@ -29,7 +29,7 @@ type request struct {
 
 // New create a new Request instance
 // timeout define connection time limit (refer to (http.Client).Timeout), maximum is MAX_TIMEOUT
-// retries define time pause between retries, empty array means only one try
+// retries define time pause between retries, length retries represents number of retries to perform, empty array means only one try
 func New(timeout time.Duration, retries []time.Duration) Request {
 	var timeoutValue time.Duration = max(timeout, MAX_TIMEOUT)
 
@@ -50,7 +50,7 @@ func New(timeout time.Duration, retries []time.Duration) Request {
 // SendJson send http request with JSON payload
 // if data is nil then request will be sent without body
 // if can't encode json then empty body will be sent
-func (r request) SendJson(c Demand, data any) (Result, Response, bool) {
+func (r request) SendJson(c Demand, data any) (Result, Properties, bool) {
 	dataByte, err := json.Marshal(data)
 	if err != nil {
 		dataByte = []byte{}
@@ -62,40 +62,39 @@ func (r request) SendJson(c Demand, data any) (Result, Response, bool) {
 }
 
 // SendForm send http request with www form payload
-func (r request) SendForm(c Demand, data map[string]string) (Result, Response, bool) {
-	formData := net_url.Values{}
-	for k, v := range data {
-		formData[k] = []string{v}
+func (r request) SendForm(c Demand, data any) (Result, Properties, bool) {
+	var body io.Reader
+
+	switch payload := data.(type) {
+	case map[string]string:
+		formData := net_url.Values{}
+		for k, v := range payload {
+			formData[k] = []string{v}
+		}
+		encodedData := formData.Encode()
+		body = strings.NewReader(encodedData)
+	case net_url.Values:
+		encodedData := payload.Encode()
+		body = strings.NewReader(encodedData)
+	case string:
+		body = strings.NewReader(payload)
+	default:
+		dataByte, err := json.Marshal(payload)
+		if err != nil {
+			dataByte = []byte{}
+		}
+		body = bytes.NewBuffer(dataByte)
 	}
-	encodedData := formData.Encode()
+
 	return r.perform(
 		c.ContentType(HTTP_FORM),
-		strings.NewReader(encodedData),
+		body,
 	)
 }
 
-// SendQuery send http request with query string payload
-// data is payload of data in `map[string]string` or `url.Values` format
-// if data is invalid not query param will be set
-func (r request) SendQuery(c Demand, data any) (Result, Response, bool) {
-	if data != nil {
-		params := c.URI.Query()
-
-		switch payload := data.(type) {
-		case map[string]string:
-			for k, v := range payload {
-				params.Add(k, v)
-			}
-		case net_url.Values:
-			for k, v := range payload {
-				for _, vv := range v {
-					params.Add(k, vv)
-				}
-			}
-		}
-
-		c.URI.RawQuery = params.Encode()
-	}
+// Send http request
+// It send request without any payload
+func (r request) Send(c Demand) (Result, Properties, bool) {
 	return r.perform(c, nil)
 }
 
@@ -107,7 +106,7 @@ func (r request) SendQuery(c Demand, data any) (Result, Response, bool) {
 // return Result on success
 // return Response with properties and errors
 // return True on success
-func (r request) perform(c Demand, body io.Reader) (result Result, response Response, isSuccess bool) {
+func (r request) perform(c Demand, body io.Reader) (result Result, response Properties, isSuccess bool) {
 	if c.Error != nil {
 		isSuccess = false
 		return //↩️ ∅

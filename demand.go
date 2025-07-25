@@ -24,8 +24,7 @@ type Demand struct {
 // method one of http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, ...
 // url raw url interpreted only as an absolute URI
 // path relative path
-// params query parameters to append to the URL
-func BuildDemand(method string, url string, path string, params map[string]string) Demand {
+func BuildDemand(method string, url string, path string) Demand {
 	demand := Demand{
 		URI:     net_url.URL{},
 		Token:   "",
@@ -43,14 +42,6 @@ func BuildDemand(method string, url string, path string, params map[string]strin
 		uri.Path += path
 	}
 
-	if len(params) > 0 {
-		q := uri.Query()
-		for key, value := range params {
-			q.Set(key, value)
-		}
-		uri.RawQuery = q.Encode()
-	}
-
 	demand.URI = *uri
 	return demand
 }
@@ -66,7 +57,7 @@ func (c Demand) GetUrl() string {
 // ContentType set content type header
 func (c Demand) ContentType(ctype ContentType) Demand {
 	if ctype == "" {
-		c.Error = errors.Join(c.Error, ErrContentEmpty)
+		c.Error = errors.Join(c.Error, ErrDemandContentTypeEmpty)
 		return c
 	}
 	c.Type = string(ctype)
@@ -76,7 +67,7 @@ func (c Demand) ContentType(ctype ContentType) Demand {
 // AuthorizationBearer set bearer authorization header
 func (c Demand) AuthorizationBearer(token string) Demand {
 	if token == "" {
-		c.Error = errors.Join(c.Error, ErrTokenEmpty)
+		c.Error = errors.Join(c.Error, ErrDemandTokenEmpty)
 		return c
 	}
 	c.Token = fmt.Sprintf("Bearer %s", token)
@@ -86,7 +77,7 @@ func (c Demand) AuthorizationBearer(token string) Demand {
 // Authorization set authorization header
 func (c Demand) Authorization(token string) Demand {
 	if token == "" {
-		c.Error = errors.Join(c.Error, ErrTokenEmpty)
+		c.Error = errors.Join(c.Error, ErrDemandTokenEmpty)
 		return c
 	}
 	c.Token = token
@@ -94,7 +85,35 @@ func (c Demand) Authorization(token string) Demand {
 }
 
 // AddHeader add additional header
-func (c Demand) AddHeader(name, value string) Demand {
+func (c Demand) Header(name, value string) Demand {
 	c.Headers[name] = value
+	return c
+}
+
+// Parameter add query parameters to the URL
+// params is payload of data in `map[string]string` or `url.Values` format
+func (c Demand) Parameter(params any) Demand {
+	if params == nil {
+		c.Error = errors.Join(c.Error, ErrDemandParamEmpty)
+		return c
+	}
+
+	query := c.URI.Query()
+
+	switch payload := params.(type) {
+	case map[string]string:
+		for k, v := range payload {
+			query.Add(k, v)
+		}
+	case net_url.Values:
+		for k, v := range payload {
+			for _, vv := range v {
+				query.Add(k, vv)
+			}
+		}
+	}
+
+	c.URI.RawQuery = query.Encode()
+
 	return c
 }

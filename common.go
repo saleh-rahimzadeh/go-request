@@ -8,8 +8,7 @@ import (
 //──────────────────────────────────────────────────────────────────────────────────────────────────
 
 const (
-	MAX_TIMEOUT               = 30 * time.Minute
-	MAX_RETRY_SLEEP_DURATIION = 10
+	MAX_TIMEOUT time.Duration = 30 * time.Minute
 )
 
 //┌ Content Types
@@ -26,6 +25,7 @@ const (
 //└─────────────────────────────────────────────────────────────────────────────────────────────────
 
 var (
-	ErrContentEmpty error = errors.New("content type is empty")
-	ErrTokenEmpty   error = errors.New("token is empty")
+	ErrDemandContentTypeEmpty error = errors.New("content type is empty")
+	ErrDemandTokenEmpty       error = errors.New("token is empty")
+	ErrDemandParamEmpty       error = errors.New("params is empty")
 )
