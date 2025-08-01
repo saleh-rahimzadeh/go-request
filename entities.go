@@ -9,7 +9,8 @@ type Result struct {
 	// Body represents the response body.
 	Body []byte
 
-	// BodyObject represents the response body marshaled as map[string]any
+	// BodyObject represents the response body marshaled as `map[string]any`,
+	// nil if the body is not a valid JSON
 	BodyObject map[string]any
 
 	// StatusCode http status code, e.g. http.StatusOK

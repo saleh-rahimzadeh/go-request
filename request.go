@@ -129,7 +129,7 @@ func (r request) perform(c Demand, body io.Reader) (result Result, response Prop
 		response.Retries = retryIndex + 1
 
 		begin := time.Now()
-		result, err = r.send(c, body)
+		result, err = r.do(c, body)
 		response.Elapsed = time.Since(begin)
 
 		if err == nil {
@@ -147,7 +147,7 @@ func (r request) perform(c Demand, body io.Reader) (result Result, response Prop
 	return //↩️ ∅
 }
 
-func (r request) send(c Demand, body io.Reader) (Result, error) {
+func (r request) do(c Demand, body io.Reader) (Result, error) {
 	httpRequest, err := http.NewRequest(c.Method, c.GetUrl(), body)
 	if err != nil {
 		return Result{}, err
@@ -178,8 +178,11 @@ func (r request) send(c Demand, body io.Reader) (Result, error) {
 	}
 
 	bodyObject := map[string]any{}
-	err = json.Unmarshal(responseBody, &bodyObject)
-	if err != nil {
+	if c.Type == string(HTTP_JSON) && len(responseBody) != 0 {
+		if json.Unmarshal(responseBody, &bodyObject) != nil {
+			bodyObject = nil
+		}
+	} else {
 		bodyObject = nil
 	}
 

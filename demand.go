@@ -91,7 +91,10 @@ func (c Demand) Header(name, value string) Demand {
 }
 
 // Parameter add query parameters to the URL
-// params is payload of data in `map[string]string` or `url.Values` format
+// params is payload of data in types:
+// `map[string]string`,
+// `map[string]any`,
+// `url.Values`
 func (c Demand) Parameter(params any) Demand {
 	if params == nil {
 		c.Error = errors.Join(c.Error, ErrDemandParamEmpty)
@@ -104,6 +107,10 @@ func (c Demand) Parameter(params any) Demand {
 	case map[string]string:
 		for k, v := range payload {
 			query.Add(k, v)
+		}
+	case map[string]any:
+		for k, v := range payload {
+			query.Add(k, fmt.Sprintf("%v", v))
 		}
 	case net_url.Values:
 		for k, v := range payload {

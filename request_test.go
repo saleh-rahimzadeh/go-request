@@ -207,7 +207,7 @@ func Test_request_send(t *testing.T) {
 				Timeout: tt.fields.Timeout,
 				Retries: tt.fields.Retries,
 			}
-			got, err := r.send(tt.args.c, tt.args.body)
+			got, err := r.do(tt.args.c, tt.args.body)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("request.send() error = %v, wantErr %v", err, tt.wantErr)
 				return
